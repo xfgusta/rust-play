@@ -1,0 +1,125 @@
+#!/bin/bash
+
+if ! [ -x "$(command -v jq)" ]; then
+  echo 'jq is not installed.' >&2
+  exit 1
+fi
+
+URL='https://play.rust-lang.org'
+GIST='https://gist.githubusercontent.com/rust-play'
+
+channel="stable"
+edition="2018"
+mode="debug"
+run=0
+share=0
+
+usage() {
+    cat <<EOF
+Usage: rsplay [-h] [-c {stable,beta,nightly}] [-e {2015,2018,2021}]
+              [-m {debug,release}] [-g ID] [-r ID] [-s]
+
+Options:
+    -c {stable,beta,nightly}    rust version (default to stable)
+    -e {2015,2018,2021}         rust edition (default to 2018)
+    -m {debug,release}          compiler optimization level (default to debug)
+    -g ID                       get source code by ID
+    -r ID                       run code by ID
+    -s                          create a shareable link
+    -h                          show this message and exit
+
+EOF
+}
+
+while getopts "c:e:m:g:r:sh" opt; do
+    case $opt in
+        c)
+            if [[ $OPTARG =~ ^(stable|beta|nightly)$ ]]; then
+                channel=$OPTARG
+            else
+                echo "Invalid channel" >&2
+                exit 1
+            fi
+            ;;
+        e)
+            if [[ $OPTARG =~ ^(2015|2018|2021)$ ]]; then
+                if [[ $OPTARG == 2021 ]]; then
+                    channel="nightly"
+                fi
+                edition=$OPTARG
+            else
+                echo "Invalid edition" >&2
+                exit 1
+            fi
+            ;;
+        m)
+            if [[ $OPTARG =~ ^(debug|release)$ ]]; then
+                mode=$OPTARG
+            else
+                echo "Invalid mode" >&2
+                exit 1
+            fi
+            ;;
+        r)
+            run=$OPTARG
+            ;;
+        g)
+            curl "$GIST/$OPTARG/raw" --silent
+            exit
+            ;;
+
+        s)
+            share=1
+            ;;
+        h)
+            usage
+            exit
+            ;;
+        \?)
+            echo "Invalid option" >&2
+            exit 1
+            ;;
+    esac
+done
+
+data() {
+    cat <<EOF 
+{
+  "backtrace": false,
+  "channel": "$channel",
+  "code": $code,
+  "crateType": "bin",
+  "edition": "$edition",
+  "mode": "$mode",
+  "tests": false
+}
+EOF
+}
+
+if [[ $run == 0 ]]; then
+    code="$(jq -Rsc)"
+else
+    src="$(curl "$GIST/$run/raw" --silent)"
+    code="$(jq -Rsc <<< $src)"
+fi
+
+if [[ $share == 1 ]]; then
+    response="$(curl -H "Content-Type: application/json" -X POST "$URL/meta/gist" --data-raw "{\"code\":$code}" --compressed --silent)"
+    id="$(jq -j .id <<< "$response")"
+    cat <<EOF
+ID: $id
+Playground: https://play.rust-lang.org/?version=$channel&mode=$mode&edition=$edition&gist=$id
+Gist: https://gist.github.com/rust-play/$id
+EOF
+    exit
+fi
+
+response="$(curl -H "Content-Type: application/json" -X POST "$URL/execute" --data-raw "$(data)" --compressed --silent)"
+
+status="$(jq .success <<< "$response")"
+if [[ $status == true ]]; then
+	jq -j .stdout <<< "$response"
+else
+	jq -j .stderr <<< "$response" >&2
+    exit 1
+fi
