@@ -1,8 +1,8 @@
 #!/bin/bash
 
 if ! [ -x "$(command -v jq)" ]; then
-  echo 'jq is not installed.' >&2
-  exit 1
+    echo 'jq is not installed.' >&2
+    exit 1
 fi
 
 URL='https://play.rust-lang.org'
@@ -118,8 +118,8 @@ response="$(curl -H "Content-Type: application/json" -X POST "$URL/execute" --da
 
 status="$(jq .success <<< "$response")"
 if [[ $status == true ]]; then
-	jq -j .stdout <<< "$response"
+    jq -j .stdout <<< "$response"
 else
-	jq -j .stderr <<< "$response" >&2
+    jq -j .stderr <<< "$response" >&2
     exit 1
 fi
